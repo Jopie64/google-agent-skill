@@ -1,0 +1,4 @@
+# Docs-only repo; scripts are tooling, not the language of this repo:
+*.md linguist-detectable=true
+*.md linguist-language=Markdown
+scripts/* -linguist-detectable

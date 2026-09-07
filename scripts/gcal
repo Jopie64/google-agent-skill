@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""gcal — minimal Google Calendar CLI for Termux (Gids).
+
+Commands:
+  auth                    One-time OAuth flow (opens URL / local redirect on this device)
+  list                    List calendars
+  today | week [N]        Events in next N days (default: today / 7)
+  add "Title" YYYY-MM-DD HH:MM [duration_min]
+"""
+import sys, os, json
+from pathlib import Path
+
+CFG = Path.home() / ".config" / "gcal"
+SECRET = CFG / "client_secret.json"
+TOKEN = CFG / "token.json"
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+# Vaste PKCE-verifier: challenge en verifier moeten tussen twee aanroepen
+# (URL ophalen, code inwisselen) identiek blijven — anders "Invalid code verifier".
+VERIFIER = "gids-termux-gcal-pkce-verifier-abcdefghijklmnopqrstuvwxyz0123456789"
+
+def client():
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    if not TOKEN.exists():
+        sys.exit("Run 'gcal auth' first.")
+    creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        TOKEN.write_text(creds.to_json())
+    from googleapiclient.discovery import build
+    return build("calendar", "v3", credentials=creds)
+
+def auth():
+    CFG.mkdir(parents=True, exist_ok=True)
+    if not SECRET.exists():
+        sys.exit(f"Put your OAuth client secret at {SECRET} first.")
+    from google_auth_oauthlib.flow import Flow
+    flow = Flow.from_client_secrets_file(str(SECRET), SCOPES,
+                                         redirect_uri="http://localhost:8199",
+                                         code_verifier=VERIFIER,
+                                         autogenerate_code_verifier=False)
+    auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+    print("Open this URL in your browser:\n\n" + auth_url +
+          "\n\nThen paste the redirect URL you land on (starts with http://localhost:8199...):")
+    code_url = input().strip()
+    from urllib.parse import urlparse, parse_qs
+    flow.fetch_token(code=parse_qs(urlparse(code_url).query)["code"][0])
+    TOKEN.write_text(flow.credentials.to_json())
+    print("Authorized. Token saved to", TOKEN)
+
+def show(days):
+    import datetime
+    svc = client()
+    tmin = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    tmax = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    evs = svc.events().list(calendarId="primary", timeMin=tmin, timeMax=tmax,
+                            singleEvents=True, orderBy="startTime").execute().get("items", [])
+    for e in evs:
+        s = e["start"].get("dateTime", e["start"].get("date", "?"))[:16].replace("T", " ")
+        print(f"{s}  {e.get('summary','(geen titel)')}")
+
+def add(title, date, time, mins=60):
+    import datetime
+    svc = client()
+    start = datetime.datetime.fromisoformat(f"{date}T{time}").isoformat()
+    end = (datetime.datetime.fromisoformat(f"{date}T{time}") +
+           datetime.timedelta(minutes=int(mins))).isoformat()
+    svc.events().insert(calendarId="primary", body={
+        "summary": title, "start": {"dateTime": start}, "end": {"dateTime": end}}).execute()
+    print("Toegevoegd:", title)
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "today"
+    if cmd == "auth": auth()
+    elif cmd == "list":
+        for c in client().calendarList().list().execute()["items"]:
+            print(c["summary"], "—", c["id"])
+    elif cmd == "today": show(1)
+    elif cmd == "week": show(int(sys.argv[2]) if len(sys.argv) > 2 else 7)
+    elif cmd == "add": add(*sys.argv[2:])
+    else: print(__doc__)

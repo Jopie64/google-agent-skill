@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""gmail-setup — store Gmail app password for IMAP/SMTP use.
+
+Stores credentials in ~/.config/gmail/ (login + secret, chmod 600).
+NOT in ~/.netrc: netrc is whitespace-delimited and breaks on passwords
+with spaces (curl and Python both choke).
+
+Usage:
+  gmail-setup <app-password> [email]
+  gmail-setup test
+"""
+import sys, re
+from pathlib import Path
+from netrc import NetrcParseError
+
+CFG = Path.home() / ".config" / "gmail"
+LOGIN = CFG / "login"
+SECRET = CFG / "secret"
+NETRC = Path.home() / ".netrc"
+
+def purge_netrc_gmail():
+    """Remove any (possibly malformed) gmail entries from legacy .netrc."""
+    if not NETRC.exists():
+        return
+    kept = [l for l in NETRC.read_text().splitlines()
+            if "gmail.com" not in l]
+    if kept != NETRC.read_text().splitlines():
+        NETRC.write_text("\n".join(kept) + "\n")
+
+def save(email, pw):
+    CFG.mkdir(parents=True, exist_ok=True)
+    LOGIN.write_text(email)
+    SECRET.write_text(pw)  # spaties prima in een eigen bestand
+    LOGIN.chmod(0o600)
+    SECRET.chmod(0o600)
+    purge_netrc_gmail()
+    print(f"OK — {email} opgeslagen in {CFG} (chmod 600)")
+
+def creds():
+    if not (LOGIN.exists() and SECRET.exists()):
+        sys.exit("Eerst: gmail-setup <app-password> <email>")
+    return LOGIN.read_text().strip(), SECRET.read_text()  # wachtwoord rauw: spaties horen erbij
+
+def test():
+    import imaplib
+    login, pw = creds()
+    m = imaplib.IMAP4_SSL("imap.gmail.com")
+    m.login(login, pw)
+    m.select("INBOX", readonly=True)
+    _, data = m.search(None, "ALL")
+    ids = data[0].split()[-5:]
+    print(f"Ingelogd als {login} — {len(data[0].split())} berichten, laatste {len(ids)}:")
+    for i in reversed(ids):
+        _, d = m.fetch(i, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+        raw = d[0][1].decode(errors="replace")
+        from_ = re.search(r"From:\s*(.*)", raw)
+        subj = re.search(r"Subject:\s*(.*)", raw)
+        print(f"  {from_.group(1).strip()[:40]:40} | {subj.group(1).strip()[:60] if subj else ''}")
+    m.logout()
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        test()
+    elif len(sys.argv) > 1:
+        email = sys.argv[2] if len(sys.argv) > 2 else input("Gmail-adres: ").strip()
+        save(email, sys.argv[1])
+    else:
+        print(__doc__)
