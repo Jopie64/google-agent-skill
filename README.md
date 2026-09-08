@@ -12,6 +12,7 @@ There is no MCP here (pi's philosophy: CLI tools + READMEs). This skill *is* the
 |------|---------|
 | `SKILL.md` | The agent-facing skill (loaded on-demand) |
 | `scripts/gcal` | Calendar CLI: `auth`, `list`, `today`, `week`, `add` |
+| `scripts/gcontacts` | Contacts CLI (People API, read-only): `auth`, `list`, `search` |
 | `scripts/gmail-setup` | Store/test Gmail app-password credentials |
 | `README.md` | Setup guide (this file) |
 
@@ -74,7 +75,20 @@ Token lands in `~/.config/gcal/token.json` and auto-refreshes. A per-installatio
 
 Try it: `scripts/gcal today` · `scripts/gcal week 14` · `scripts/gcal add "Test" 2026-01-01 12:00 30`
 
-### 5. Drive (rclone)
+### 5. Contacts (read-only, one-time OAuth)
+
+1. Same Cloud project: APIs & Services → Library → **Google People API** → *Enable*
+2. Authorize (same flow as Calendar — the per-installation PKCE verifier is reused):
+
+```
+scripts/gcontacts auth
+```
+
+Token lands in `~/.config/gcal/contacts-token.json`. Read-only scope: the agent can look up contacts but never modify them.
+
+Try it: `scripts/gcontacts list 10` · `scripts/gcontacts search "anne"`
+
+### 6. Drive (rclone)
 
 ```
 rclone authorize "drive"       # opens a local callback server; open the printed URL in your browser

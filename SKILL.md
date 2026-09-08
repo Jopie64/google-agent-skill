@@ -42,6 +42,11 @@ paste them anywhere.
   `code_verifier` passed to `authorization_url()`/`fetch_token()`; it belongs on
   the `Flow` constructor. Symptom of getting this wrong: `Invalid code verifier`.
 
+## Contacts
+
+- `scripts/gcontacts` — auth | list [N] | search "query" (People API, **read-only** scope)
+- Token: `~/.config/gcal/contacts-token.json`; requires the People API enabled in the same Cloud project (README §5).
+
 ## Drive
 
 - `rclone` remote `gdrive:` — config in `~/.config/rclone/rclone.conf` (chmod 600).

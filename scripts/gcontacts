@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""gcontacts — minimal Google Contacts CLI (People API) for the google-agent-skill.
+
+Commands:
+  auth                  One-time OAuth flow (same pattern as gcal auth)
+  list [N]              Show first N contacts (default 25) with names/emails/phones
+  search "query"        Search contacts by name/email/phone
+"""
+import sys
+from pathlib import Path
+
+CFG = Path.home() / ".config" / "gcal"          # shared credential home with gcal
+VERIFIER_FILE = CFG / "verifier"                # shared per-installation PKCE verifier
+SECRET = CFG / "client_secret.json"
+TOKEN = CFG / "contacts-token.json"
+SCOPES = ["https://www.googleapis.com/auth/contacts.readonly"]
+
+def client():
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    if not TOKEN.exists():
+        sys.exit("Run 'gcontacts auth' first.")
+    creds = Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        TOKEN.write_text(creds.to_json())
+    from googleapiclient.discovery import build
+    return build("people", "v1", credentials=creds)
+
+def auth():
+    if not SECRET.exists():
+        sys.exit(f"Put your OAuth client secret at {SECRET} first (see README).")
+    from google_auth_oauthlib.flow import Flow
+    verifier = VERIFIER_FILE.read_text().strip() if VERIFIER_FILE.exists() else None
+    if verifier is None:
+        sys.exit("No PKCE verifier found — run 'gcal auth' setup first (creates it).")
+    flow = Flow.from_client_secrets_file(str(SECRET), SCOPES,
+                                         redirect_uri="http://localhost:8199",
+                                         code_verifier=verifier,
+                                         autogenerate_code_verifier=False)
+    auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+    print("Open this URL in your browser:\n\n" + auth_url +
+          "\n\nThen paste the redirect URL you land on (starts with http://localhost:8199...):")
+    from urllib.parse import urlparse, parse_qs
+    code_url = input().strip()
+    flow.fetch_token(code=parse_qs(urlparse(code_url).query)["code"][0])
+    TOKEN.write_text(flow.credentials.to_json())
+    TOKEN.chmod(0o600)
+    print("Authorized. Token saved to", TOKEN)
+
+def fmt(p):
+    names = p.get("names", [])
+    name = names[0].get("displayName", "?") if names else "(no name)"
+    emails = ", ".join(v["value"] for v in p.get("emailAddresses", []))
+    phones = ", ".join(v["value"] for v in p.get("phoneNumbers", []))
+    orgs = p.get("organizations", [])
+    org = orgs[0].get("name", "") if orgs else ""
+    line = name
+    for extra in (emails, phones, org):
+        if extra:
+            line += f" | {extra}"
+    return line
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "list"
+    svc = client()
+    fields = "names,emailAddresses,phoneNumbers,organizations"
+    if cmd == "auth":
+        auth(); return
+    if cmd == "list":
+        n = int(sys.argv[2]) if len(sys.argv) > 2 else 25
+        res = svc.people().connections().list(
+            resourceName="people/me", pageSize=min(n, 200),
+            personFields=fields, sortOrder="LAST_MODIFIED_ASCENDING").execute()
+        people = res.get("connections", [])
+        for p in people:
+            print(fmt(p))
+        print(f"({len(people)} contacts, first page — total: {res.get('totalItems','?')})", file=sys.stderr)
+    elif cmd == "search":
+        q = sys.argv[2] if len(sys.argv) > 2 else ""
+        if not q:
+            sys.exit("Usage: gcontacts search \"query\"")
+        res = svc.people().searchContacts(query=q, readMask=fields, pageSize=20).execute()
+        people = res.get("results", [])
+        for r in people:
+            print(fmt(r["person"]))
+        print(f"({len(people)} hits for '{q}')", file=sys.stderr)
+    else:
+        print(__doc__)
+
+if __name__ == "__main__":
+    main()
