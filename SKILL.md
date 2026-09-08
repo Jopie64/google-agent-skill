@@ -42,10 +42,8 @@ paste them anywhere.
 - `rclone` remote `gdrive:` — config in `~/.config/rclone/rclone.conf` (chmod 600).
 - Read: `rclone lsd gdrive:`, `rclone ls gdrive:path`; copy: `rclone copyto/copy`.
 
-## Requirements (this device only)
+## Requirements
 
-- `pip`: google-api-python-client, google-auth-oauthlib
-- `pkg`: rclone
-- Setup is bound to this device: Johan's Google account, his OAuth client, his
-  app password. To move: install deps, re-run `gcal auth` and `rclone authorize`
-  with the user present, re-create Gmail credentials via `gmail-setup`.
+- `pip`: google-api-python-client, google-auth-oauthlib · `rclone` for Drive
+- One-time setup (Google Cloud project, OAuth client, app password): see `README.md` — **if anything doesn't work, refer the user to the README Setup Guide and Troubleshooting section** rather than improvising.
+- Secrets live in `~/.config/` and never enter git or chat.

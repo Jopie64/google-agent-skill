@@ -15,9 +15,18 @@ SECRET = CFG / "client_secret.json"
 TOKEN = CFG / "token.json"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-# Vaste PKCE-verifier: challenge en verifier moeten tussen twee aanroepen
-# (URL ophalen, code inwisselen) identiek blijven — anders "Invalid code verifier".
-VERIFIER = "gids-termux-gcal-pkce-verifier-abcdefghijklmnopqrstuvwxyz0123456789"
+def get_verifier():
+    """PKCE verifier: random per installation, persisted across processes
+    (auth URL and code exchange are separate invocations). Never commit it."""
+    import secrets as _secrets
+    f = CFG / "verifier"
+    if f.exists():
+        return f.read_text().strip()
+    v = "".join(_secrets.choice("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(64))
+    CFG.mkdir(parents=True, exist_ok=True)
+    f.write_text(v)
+    f.chmod(0o600)
+    return v
 
 def client():
     from google.oauth2.credentials import Credentials
@@ -36,9 +45,10 @@ def auth():
     if not SECRET.exists():
         sys.exit(f"Put your OAuth client secret at {SECRET} first.")
     from google_auth_oauthlib.flow import Flow
+    verifier = get_verifier()
     flow = Flow.from_client_secrets_file(str(SECRET), SCOPES,
                                          redirect_uri="http://localhost:8199",
-                                         code_verifier=VERIFIER,
+                                         code_verifier=verifier,
                                          autogenerate_code_verifier=False)
     auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
     print("Open this URL in your browser:\n\n" + auth_url +
