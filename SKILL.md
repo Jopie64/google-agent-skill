@@ -34,7 +34,7 @@ paste them anywhere.
 
 - `scripts/gcal` — auth | list | today | week [N] | add "Title" YYYY-MM-DD HH:MM [min]
 - Token: `~/.config/gcal/token.json` (auto-refreshes), OAuth client:
-  `~/.config/gcal/client_secret.json` (Google Cloud project "termux").
+  `~/.config/gcal/client_secret.json` (your own Google Cloud project's OAuth client — see README setup guide).
 - PKCE: the verifier is generated per installation and persisted in
   `~/.config/gcal/verifier` (chmod 600) — it must stay private and stable across
   processes. Implementation caveat: `google_auth_oauthlib` silently ignores a
