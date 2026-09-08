@@ -2,10 +2,13 @@
 """gcal — minimal Google Calendar CLI for Termux (Gids).
 
 Commands:
-  auth                    One-time OAuth flow (opens URL / local redirect on this device)
-  list                    List calendars
-  today | week [N]        Events in next N days (default: today / 7)
-  add "Title" YYYY-MM-DD HH:MM [duration_min]
+  auth                          One-time OAuth flow (opens URL / local redirect on this device)
+  list                          List calendars
+  today [calendar]              Events today (all calendars if no name given)
+  week [N] [calendar]           Events in next N days (default 7)
+  add "Title" YYYY-MM-DD HH:MM [duration_min] [calendar]
+
+Calendar is matched case-insensitively on summary or id (substring).
 """
 import sys, os, json
 from pathlib import Path
@@ -59,34 +62,77 @@ def auth():
     TOKEN.write_text(flow.credentials.to_json())
     print("Authorized. Token saved to", TOKEN)
 
-def show(days):
+def calendars(svc):
+    return svc.calendarList().list().execute()["items"]
+
+def resolve(svc, name):
+    """Resolve a calendar name (substring, case-insensitive) to one calendar."""
+    cals = calendars(svc)
+    hits = [c for c in cals if name.lower() in c["summary"].lower() or name.lower() in c["id"].lower()]
+    if not hits:
+        sys.exit(f"Geen kalender gevonden voor '{name}'. Kies uit:\n" +
+                 "\n".join(f"  {c['summary']}" for c in cals))
+    if len(hits) > 1:
+        sys.exit("Meerdere kalenders matchen '" + name + "':\n" +
+                 "\n".join(f"  {c['summary']} — {c['id']}" for c in hits))
+    return hits[0]
+
+def show(svc, days, cal_name, cals):
     import datetime
-    svc = client()
     tmin = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     tmax = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)).isoformat().replace("+00:00", "Z")
-    evs = svc.events().list(calendarId="primary", timeMin=tmin, timeMax=tmax,
-                            singleEvents=True, orderBy="startTime").execute().get("items", [])
-    for e in evs:
-        s = e["start"].get("dateTime", e["start"].get("date", "?"))[:16].replace("T", " ")
-        print(f"{s}  {e.get('summary','(geen titel)')}")
+    total = 0
+    for c in cals:
+        evs = svc.events().list(calendarId=c["id"], timeMin=tmin, timeMax=tmax,
+                                singleEvents=True, orderBy="startTime").execute().get("items", [])
+        for e in evs:
+            s = e["start"].get("dateTime", e["start"].get("date", "?"))[:16].replace("T", " ")
+            tag = c["summary"] if cal_name is None else ""
+            print(f"{s}  [{tag}] {e.get('summary','(geen titel)')}" if tag else f"{s}  {e.get('summary','(geen titel)')}")
+            total += 1
+    print(f"({total} events in {len(cals)} kalender(s))", file=sys.stderr)
 
-def add(title, date, time, mins=60):
+def add(svc, title, date, time, mins, cal_name):
     import datetime
-    svc = client()
+    cid = cal_name["id"] if isinstance(cal_name, dict) else "primary"
     start = datetime.datetime.fromisoformat(f"{date}T{time}").isoformat()
     end = (datetime.datetime.fromisoformat(f"{date}T{time}") +
            datetime.timedelta(minutes=int(mins))).isoformat()
-    svc.events().insert(calendarId="primary", body={
+    svc.events().insert(calendarId=cid, body={
         "summary": title, "start": {"dateTime": start}, "end": {"dateTime": end}}).execute()
-    print("Toegevoegd:", title)
+    print("Toegevoegd aan", cal_name.get("summary", "primary") if isinstance(cal_name, dict) else "primary",
+          ":", title)
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "today"
+    args = sys.argv[2:]
+    if cmd == "auth":
+        auth()
+    elif cmd == "list":
+        for c in calendars(client()):
+            print(c["summary"], "—", c["id"])
+    elif cmd in ("today", "week"):
+        svc = client()
+        if cmd == "week" and args and args[0].isdigit():
+            days = int(args.pop(0))
+        else:
+            days = 1 if cmd == "today" else 7
+        cal_name = args.pop(0) if args else None
+        if cal_name:
+            show(svc, days, cal_name, [resolve(svc, cal_name)])
+        else:
+            show(svc, days, None, calendars(svc))
+    elif cmd == "add":
+        if len(args) < 3:
+            print(__doc__); sys.exit(1)
+        title, date, time = args[0], args[1], args[2]
+        mins = args[3] if len(args) > 3 else 60
+        cal_name = args[4] if len(args) > 4 else None
+        svc = client()
+        cal = resolve(svc, cal_name) if cal_name else {"id": "primary", "summary": "primary"}
+        add(svc, title, date, time, mins, cal)
+    else:
+        print(__doc__)
 
 if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "today"
-    if cmd == "auth": auth()
-    elif cmd == "list":
-        for c in client().calendarList().list().execute()["items"]:
-            print(c["summary"], "—", c["id"])
-    elif cmd == "today": show(1)
-    elif cmd == "week": show(int(sys.argv[2]) if len(sys.argv) > 2 else 7)
-    elif cmd == "add": add(*sys.argv[2:])
-    else: print(__doc__)
+    main()

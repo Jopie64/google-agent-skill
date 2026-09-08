@@ -32,7 +32,8 @@ paste them anywhere.
 
 ## Calendar
 
-- `scripts/gcal` — auth | list | today | week [N] | add "Title" YYYY-MM-DD HH:MM [min]
+- `scripts/gcal` — auth | list | today [cal] | week [N] [cal] | add "Title" YYYY-MM-DD HH:MM [min] [cal]
+- No calendar given = search **all** calendars (events tagged `[CalendarName]`); a name is matched case-insensitively by substring on summary/id, with an explicit refusal on ambiguous matches.
 - Token: `~/.config/gcal/token.json` (auto-refreshes), OAuth client:
   `~/.config/gcal/client_secret.json` (your own Google Cloud project's OAuth client — see README setup guide).
 - PKCE: the verifier is generated per installation and persisted in
