@@ -6,7 +6,7 @@ Commands:
   list                          List calendars
   today [calendar]              Events today (all calendars if no name given)
   week [N] [calendar]           Events in next N days (default 7)
-  add "Title" YYYY-MM-DD HH:MM [duration_min] [calendar]
+  add "Title" YYYY-MM-DD HH:MM [duration_min] [calendar]   (local timezone)
 
 Calendar is matched case-insensitively on summary or id (substring).
 """
@@ -70,10 +70,10 @@ def resolve(svc, name):
     cals = calendars(svc)
     hits = [c for c in cals if name.lower() in c["summary"].lower() or name.lower() in c["id"].lower()]
     if not hits:
-        sys.exit(f"Geen kalender gevonden voor '{name}'. Kies uit:\n" +
+        sys.exit(f"No calendar found for '{name}'. Available:\n" +
                  "\n".join(f"  {c['summary']}" for c in cals))
     if len(hits) > 1:
-        sys.exit("Meerdere kalenders matchen '" + name + "':\n" +
+        sys.exit("Multiple calendars match '" + name + "':\n" +
                  "\n".join(f"  {c['summary']} — {c['id']}" for c in hits))
     return hits[0]
 
@@ -88,20 +88,21 @@ def show(svc, days, cal_name, cals):
         for e in evs:
             s = e["start"].get("dateTime", e["start"].get("date", "?"))[:16].replace("T", " ")
             tag = c["summary"] if cal_name is None else ""
-            print(f"{s}  [{tag}] {e.get('summary','(geen titel)')}" if tag else f"{s}  {e.get('summary','(geen titel)')}")
+            print(f"{s}  [{tag}] {e.get('summary','(no title)')}" if tag else f"{s}  {e.get('summary','(no title)')}")
             total += 1
-    print(f"({total} events in {len(cals)} kalender(s))", file=sys.stderr)
+    print(f"({total} events in {len(cals)} calendar(s))", file=sys.stderr)
 
-def add(svc, title, date, time, mins, cal_name):
+def add(svc, title, date, time, mins, cal):
+    """cal: dict with id+summary (primary included). Times are interpreted in
+    the device's local timezone — the API requires timezone-aware values."""
     import datetime
-    cid = cal_name["id"] if isinstance(cal_name, dict) else "primary"
-    start = datetime.datetime.fromisoformat(f"{date}T{time}").isoformat()
-    end = (datetime.datetime.fromisoformat(f"{date}T{time}") +
-           datetime.timedelta(minutes=int(mins))).isoformat()
-    svc.events().insert(calendarId=cid, body={
-        "summary": title, "start": {"dateTime": start}, "end": {"dateTime": end}}).execute()
-    print("Toegevoegd aan", cal_name.get("summary", "primary") if isinstance(cal_name, dict) else "primary",
-          ":", title)
+    start = datetime.datetime.fromisoformat(f"{date}T{time}").astimezone()
+    end = start + datetime.timedelta(minutes=int(mins))
+    svc.events().insert(calendarId=cal["id"], body={
+        "summary": title,
+        "start": {"dateTime": start.isoformat(), "timeZone": start.tzname()},
+        "end": {"dateTime": end.isoformat(), "timeZone": end.tzname()}}).execute()
+    print(f"Added to {cal['summary']}: {title} ({start.strftime('%Y-%m-%d %H:%M')})")
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "today"
@@ -126,8 +127,13 @@ def main():
         if len(args) < 3:
             print(__doc__); sys.exit(1)
         title, date, time = args[0], args[1], args[2]
-        mins = args[3] if len(args) > 3 else 60
-        cal_name = args[4] if len(args) > 4 else None
+        rest = args[3:]
+        mins = 60
+        cal_name = None
+        if rest and rest[0].isdigit():
+            mins = rest.pop(0)
+        if rest:
+            cal_name = rest[0]
         svc = client()
         cal = resolve(svc, cal_name) if cal_name else {"id": "primary", "summary": "primary"}
         add(svc, title, date, time, mins, cal)
