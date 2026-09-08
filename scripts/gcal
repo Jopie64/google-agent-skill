@@ -100,8 +100,8 @@ def add(svc, title, date, time, mins, cal):
     end = start + datetime.timedelta(minutes=int(mins))
     svc.events().insert(calendarId=cal["id"], body={
         "summary": title,
-        "start": {"dateTime": start.isoformat(), "timeZone": start.tzname()},
-        "end": {"dateTime": end.isoformat(), "timeZone": end.tzname()}}).execute()
+        "start": {"dateTime": start.isoformat()},   # offset erin = tijdzone impliciet
+        "end": {"dateTime": end.isoformat()}}).execute()
     print(f"Added to {cal['summary']}: {title} ({start.strftime('%Y-%m-%d %H:%M')})")
 
 def main():
